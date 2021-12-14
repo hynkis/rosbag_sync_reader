@@ -18,8 +18,29 @@
 #include <sensor_msgs/CompressedImage.h>
 #include <sensor_msgs/PointCloud2.h>
 
+#include <pcl_conversions/pcl_conversions.h>
+#include <pcl/point_types.h>
+#include <pcl/conversions.h>
+#include <pcl/filters/passthrough.h>
+#include <pcl/common/transforms.h>
+#include <pcl/point_cloud.h>
+
+
 // Global variable
 bool stop_parsing_bag = false;
+// - For transformation
+Eigen::Matrix4f trans_center, trans_left, trans_right;
+std::vector<float> vec_center, vec_left, vec_right;
+
+// Global function
+void SavePNGImage(const cv::Mat img, std::string save_path, bool is_depth)
+{
+    if (is_depth)
+    {
+      img.convertTo(img, CV_16UC1);
+    }
+    cv::imwrite(save_path, img);
+}
 
 // A struct to hold the synchronized camera data 
 // Struct to store stereo data
@@ -70,18 +91,84 @@ void callback(const sensor_msgs::CompressedImage::ConstPtr &msg_center_img,
   cv::Mat img_left   = cv::imdecode(cv::Mat(msg_left_img->data), 1);
   cv::Mat img_right  = cv::imdecode(cv::Mat(msg_right_img->data), 1);
 
-  cv::imshow("cam_center", img_center);
-  cv::imshow("cam_left", img_left);
-  cv::imshow("cam_right", img_right);
-  
-  // if push ESC key, destroy all windows & stop parsing bag
-  char key = cv::waitKey(0);
-  if (key == 27)
+  // Get Pointcloud
+  pcl::PointCloud<pcl::PointXYZI>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZI>);
+  pcl::fromROSMsg(*msg_points, *cloud);
+
+  // Fuse image and pointcloud
+  cv::Mat fusion_img_center;
+  img_center.copyTo(fusion_img_center);
+
+  // Project points to depth image
+  // - Initialize depth image (16 bit)
+  cv::Mat depth_img_center(img_center.rows, img_center.cols, CV_16UC1, cv::Scalar(0));
+
+  // Iteration w.r.t. points (for Visualization of the Camera-LiDAR fusion)
+  for (auto &point : cloud->points)
   {
-    cv::destroyAllWindows();
-    stop_parsing_bag = true;
-    return;
+      pcl::PointXYZI point_buf_center, point_buf_left, point_buf_right;
+      
+      // Depth for coloring
+      double depth = sqrt(pow(point.x, 2.0) + pow(point.y, 2));
+
+      // for center cam + lidar
+      point_buf_center.x = ((vec_center.at(0) * point.x + vec_center.at(1) * point.y + vec_center.at(2) * point.z + vec_center.at(3)) / (vec_center.at(8) * point.x + vec_center.at(9) * point.y + vec_center.at(10) * point.z + vec_center.at(11)));
+      point_buf_center.y = ((vec_center.at(4) * point.x + vec_center.at(5) * point.y + vec_center.at(6) * point.z + vec_center.at(7)) / (vec_center.at(8) * point.x + vec_center.at(9) * point.y + vec_center.at(10) * point.z + vec_center.at(11)));
+      point_buf_center.z = (vec_center.at(8) * point.x + vec_center.at(9) * point.y + vec_center.at(10) * point.z + vec_center.at(11));
+      
+      // - for camera-lidar fusion image
+      // -- circle(InputOutputArray img, Point center, int radius, Scalar color, int thickness, int lineType, int shift)
+      int point_to_color = (1 - std::min(depth, 50.0) / 50.0) * 255.0;
+      circle(fusion_img_center, cv::Point(point_buf_center.x, point_buf_center.y), 5, cv::Scalar(0, point_to_color, 0), -1, 8, 0);
+
+      // - for depth image
+      // -- circle(InputOutputArray img, Point center, int radius, Scalar color, int thickness, int lineType, int shift)
+      // int depth_to_color = (1 - std::min(depth, 100.0) / 100.0) * 255.0 * 255.0;
+      int depth_to_color = std::min(depth, 255.0) * 255.0;
+      circle(depth_img_center, cv::Point(point_buf_center.x, point_buf_center.y), 5, cv::Scalar(depth_to_color), -1, 8, 0);
   }
+
+  if (img_center.empty() || img_left.empty() || img_right.empty())
+  {
+      std::cout << "image is empty" << std::endl;
+  }
+  else
+  {
+      // Show current images
+      cv::imshow("cam_center", img_center);
+      cv::imshow("cam_left", img_left);
+      cv::imshow("cam_right", img_right);
+      // if push ESC key, destroy all windows & stop parsing bag
+      char key = cv::waitKey(0);
+      if (key == 27)
+      {
+        cv::destroyAllWindows();
+        stop_parsing_bag = true;
+        return;
+      }
+
+      // Save image data
+      std::string pkg_path = ros::package::getPath("rosbag_sync_reader");
+      
+      // - save raw image
+      std::string save_path_image_center = pkg_path + "/img/"
+                                          + std::to_string(msg_center_img->header.stamp.sec + msg_center_img->header.stamp.nsec * 1e-9)
+                                          + ".png";
+      SavePNGImage(img_center, save_path_image_center, false);
+
+      // - save fuse image
+      std::string save_path_fusion_center = pkg_path + "/fusion/"
+                                          + std::to_string(msg_center_img->header.stamp.sec + msg_center_img->header.stamp.nsec * 1e-9)
+                                          + ".png";
+      SavePNGImage(fusion_img_center, save_path_fusion_center, false);
+
+      // - save depth image
+      std::string save_path_depth_center = pkg_path + "/depth/"
+                                          + std::to_string(msg_center_img->header.stamp.sec + msg_center_img->header.stamp.nsec * 1e-9)
+                                          + ".png";
+      SavePNGImage(depth_img_center, save_path_depth_center, true);
+  }
+  
 }
  
 // Load bag
@@ -174,6 +261,16 @@ int main(int argc, char** argv)
   std::string pkg_path = ros::package::getPath("rosbag_sync_reader");
   std::string bag_path = pkg_path + "/bags/example.bag";
 
+  // for center cam (4x4 LiDAR-to-Camera transformation matrix)
+  trans_center << -0.197307, 0.393827, -0.00539561, -0.442059,
+                  -0.159261, 0.00514399, 0.427143, -0.634573,
+                  -0.000410322, -1.00294e-05, 1.87862e-05, -0.000903967,
+                  0, 0, 0, 1;
+  vec_center = {-0.197307, 0.393827, -0.00539561, -0.442059,
+                -0.159261, 0.00514399, 0.427143, -0.634573,
+                -0.000410322, -1.00294e-05, 1.87862e-05, -0.000903967,
+                0, 0, 0, 1};;
+                
   // Start to read messages
   loadBag(bag_path);
   
