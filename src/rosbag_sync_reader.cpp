@@ -25,6 +25,13 @@
 #include <pcl/common/transforms.h>
 #include <pcl/point_cloud.h>
 
+// Global parameters
+bool SHOW_IMG = false;
+bool SAVE_RAW_IMG = true;
+bool SAVE_FUSION_IMG = false;
+bool SAVE_DEPTH_IMG = true;
+
+std::string BAG_FILE_PATH = "/media/usrg/Samsung_T51/Carnival/21.12.09_cam_lidar_sync/cam_lidar_data/SKAI-RC-2021-12-09-16-21-19-KAIST-CW.bag";
 
 // Global variable
 bool stop_parsing_bag = false;
@@ -135,38 +142,45 @@ void callback(const sensor_msgs::CompressedImage::ConstPtr &msg_center_img,
   else
   {
       // Show current images
-      cv::imshow("cam_center", img_center);
-      cv::imshow("cam_left", img_left);
-      cv::imshow("cam_right", img_right);
-      // if push ESC key, destroy all windows & stop parsing bag
-      char key = cv::waitKey(0);
-      if (key == 27)
+      if (SHOW_IMG)
       {
-        cv::destroyAllWindows();
-        stop_parsing_bag = true;
-        return;
+        cv::imshow("cam_center", img_center);
+        cv::imshow("cam_left", img_left);
+        cv::imshow("cam_right", img_right);
+        // if push ESC key, destroy all windows & stop parsing bag
+        char key = cv::waitKey(5);
+        if (key == 27)
+        {
+          cv::destroyAllWindows();
+          stop_parsing_bag = true;
+          return;
+        }
       }
 
       // Save image data
       std::string pkg_path = ros::package::getPath("rosbag_sync_reader");
+      std::string file_name = std::to_string(msg_center_img->header.stamp.sec + msg_center_img->header.stamp.nsec * 1e-9);
       
       // - save raw image
-      std::string save_path_image_center = pkg_path + "/img/"
-                                          + std::to_string(msg_center_img->header.stamp.sec + msg_center_img->header.stamp.nsec * 1e-9)
-                                          + ".png";
-      SavePNGImage(img_center, save_path_image_center, false);
-
+      if (SAVE_RAW_IMG)
+      {
+        std::string save_path_image_center = pkg_path + "/img/" + file_name + ".png";
+        SavePNGImage(img_center, save_path_image_center, false);
+      }
       // - save fuse image
-      std::string save_path_fusion_center = pkg_path + "/fusion/"
-                                          + std::to_string(msg_center_img->header.stamp.sec + msg_center_img->header.stamp.nsec * 1e-9)
-                                          + ".png";
-      SavePNGImage(fusion_img_center, save_path_fusion_center, false);
-
+      if (SAVE_FUSION_IMG)
+      {
+        std::string save_path_fusion_center = pkg_path + "/fusion/" + file_name + ".png";
+        SavePNGImage(fusion_img_center, save_path_fusion_center, false);
+      }
       // - save depth image
-      std::string save_path_depth_center = pkg_path + "/depth/"
-                                          + std::to_string(msg_center_img->header.stamp.sec + msg_center_img->header.stamp.nsec * 1e-9)
-                                          + ".png";
-      SavePNGImage(depth_img_center, save_path_depth_center, true);
+      if (SAVE_DEPTH_IMG)
+      {
+        std::string save_path_depth_center = pkg_path + "/depth/" + file_name + ".png";
+        SavePNGImage(depth_img_center, save_path_depth_center, true);
+      }
+
+      std::cout << "Save data: " << file_name << std::endl;
   }
   
 }
@@ -258,8 +272,9 @@ int main(int argc, char** argv)
 {
   ros::init (argc, argv, "RosbagSyncReader");
   ros::NodeHandle _nh;
-  std::string pkg_path = ros::package::getPath("rosbag_sync_reader");
-  std::string bag_path = pkg_path + "/bags/example.bag";
+  // std::string pkg_path = ros::package::getPath("rosbag_sync_reader");
+  // std::string bag_path = pkg_path + "/bags/example.bag";
+  std::string bag_path = BAG_FILE_PATH;
 
   // for center cam (4x4 LiDAR-to-Camera transformation matrix)
   trans_center << -0.197307, 0.393827, -0.00539561, -0.442059,
