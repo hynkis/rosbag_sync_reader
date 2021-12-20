@@ -31,7 +31,7 @@ bool SAVE_RAW_IMG = true;
 bool SAVE_FUSION_IMG = false;
 bool SAVE_DEPTH_IMG = true;
 
-std::string BAG_FILE_PATH = "/media/usrg/Samsung_T51/Carnival/21.12.09_cam_lidar_sync/cam_lidar_data/SKAI-RC-2021-12-09-16-21-19-KAIST-CW.bag";
+std::string BAG_FILE_PATH = "/media/usrg/Samsung_T51/Carnival/21.12.16_sensor_data/kaist/2021-12-16-16-41-02-CCW.bag";
 
 // Global variable
 bool stop_parsing_bag = false;
