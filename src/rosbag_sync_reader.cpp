@@ -30,11 +30,12 @@
 // Global parameters
 bool SHOW_IMG = false;
 bool SAVE_RAW_IMG = true;
-bool SAVE_FUSION_IMG = true;
-bool SAVE_DEPTH_IMG = true;
+bool SAVE_FUSION_IMG = false;
+bool SAVE_DEPTH_IMG = false;
 bool SAVE_POINTCLOUD_BIN = true;
+bool SAVE_CALIBRATION = true;
 
-std::string BAG_FILE_PATH = "/media/usrg/Samsung_T51/Carnival/21.12.16_sensor_data/kaist/2021-12-16-16-26-41-KAIST-CW.bag";
+std::string BAG_FILE_PATH = "/media/usrg/Samsung_T51/Carnival/21.12.09_cam_lidar_sync/cam_lidar_data/2021-12-09-16-21-19-KAIST-CW.bag";
 
 // Global variable
 bool stop_parsing_bag = false;
@@ -114,6 +115,10 @@ void callback(const sensor_msgs::CompressedImage::ConstPtr &msg_center_img,
 
   std::string save_path_pointcloud_bin = pkg_path + "/point_cloud/" + file_name + ".bin";
 
+  std::string load_path_calibration = pkg_path + "/calib_data/lidar_to_cam.txt";
+  std::string save_path_calibration = pkg_path + "/calibration/" + file_name + ".txt";
+
+
   // Get CV Image (from compressed image message)
   cv::Mat img_center = cv::imdecode(cv::Mat(msg_center_img->data), 1); //convert compressed image data to cv::Mat
   cv::Mat img_left   = cv::imdecode(cv::Mat(msg_left_img->data), 1);
@@ -123,7 +128,8 @@ void callback(const sensor_msgs::CompressedImage::ConstPtr &msg_center_img,
   pcl::PointCloud<pcl::PointXYZI>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZI>);
   // - message to PointCloud
   pcl::fromROSMsg(*msg_points, *cloud);
-  // - create .bin file
+
+  // Create .bin file (for point cloud)
   //  - reference: https://github.com/leofansq/Tools_RosBag2KITTI/blob/master/pcd2bin/pcd2bin.cpp
   //  - reference: https://github.com/PRBonn/lidar-bonnetal/issues/78
   
@@ -134,6 +140,9 @@ void callback(const sensor_msgs::CompressedImage::ConstPtr &msg_center_img,
   {
     throw std::runtime_error(std::string("Failed to open file: ") + save_path_pointcloud_bin);
   }
+
+  // Create .txt file (for calibration. read templete file'')
+  std::ifstream calib_txt_data(load_path_calibration.c_str());
 
   // Fuse image and pointcloud
   cv::Mat fusion_img_center, fusion_img_left, fusion_img_right;
@@ -230,9 +239,6 @@ void callback(const sensor_msgs::CompressedImage::ConstPtr &msg_center_img,
       i++; // for iterator
   }
 
-  // close bin file
-  bin_file.close();
-
   if (img_center.empty() || img_left.empty() || img_right.empty())
   {
       std::cout << "image is empty" << std::endl;
@@ -280,8 +286,26 @@ void callback(const sensor_msgs::CompressedImage::ConstPtr &msg_center_img,
 
       // - save pointcloud bin (inside above pointcloud for-loop)
 
+      // - save calibration txt
+      if (SAVE_CALIBRATION)
+      {
+        //
+        std::ofstream calib_txt_file(save_path_calibration.c_str(), std::ios::out|std::ios::app);
+        char ch;
+        // - read data until end of loaded data
+        while (calib_txt_data.get(ch))
+        {
+          calib_txt_file << ch; // save read data
+        }
+        calib_txt_file.close();
+      }
+
 
       std::cout << "Save data: " << file_name << std::endl;
+
+  // close files
+  bin_file.close();
+  calib_txt_data.close();
   }
   
 }
